@@ -46,7 +46,6 @@ void importProb(REAL temp){
         }
         sum = 0;
     }
-    printf("Probability:%f\n", prob[607]);
 }
 
 extern "C"
