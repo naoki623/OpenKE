@@ -69,7 +69,7 @@ INT corrupt_tail(INT id, INT t, INT r) {
 }
 
 
-INT corrupt_rel(INT id, INT h, INT t) {
+INT corrupt_rel(INT id, INT h, INT t, INT r, bool p=false) {
 	INT lef, rig, mid, ll, rr;
 	lef = lefRel[h] - 1;
 	rig = rigRel[h];
@@ -87,7 +87,46 @@ INT corrupt_rel(INT id, INT h, INT t) {
 		rig = mid;
 	}
 	rr = lef;
-	INT tmp = rand_max(id, relationTotal - (rr - ll + 1));
+	INT tmp;
+	if(p == false)
+	{	
+		tmp = rand_max(id, relationTotal - (rr - ll + 1));
+	}
+	else{
+		INT start = r * (relationTotal-1);
+		REAL sum = 1;
+		bool *record = (bool *)calloc(relationTotal-1, sizeof(bool));
+		for (INT i = ll; i <= rr; ++i){
+			if (trainRel[i].r > r){
+				sum -= prob[start+trainRel[i].r-1];
+				record[trainRel[i].r-1] = true;
+			}
+			else if (trainRel[i].r < r){
+				sum -= prob[start+trainRel[i].r];
+				record[trainRel[i].r] = true;
+			}
+		}		
+		REAL *prob_tmp = (REAL *)calloc(relationTotal-(rr-ll+1), sizeof(REAL));
+		INT cnt = 0;
+		REAL rec = 0;
+		for (INT i = start; i < start+relationTotal-1; ++i){
+			if (record[i-start])
+				continue;
+			rec += prob[i] / sum;
+			prob_tmp[cnt++] = rec;
+		}
+		REAL m = rand_max(id, 10000) / 10000.0;
+		lef = 0;
+		rig = cnt - 1;
+		while (lef < rig) {
+		mid = (lef + rig) >> 1;
+		if (prob_tmp[mid] < m) lef = mid + 1; else
+		rig = mid;
+		}
+		tmp = rig;
+		free(prob_tmp);
+		free(record);
+	}
 	if (tmp < trainRel[ll].r) return tmp;
 	if (tmp > trainRel[rr].r - rr + ll - 1) return tmp + rr - ll + 1;
 	lef = ll, rig = rr + 1;

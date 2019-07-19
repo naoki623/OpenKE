@@ -4,12 +4,15 @@
 #include "Triple.h"
 #include <cstdlib>
 #include <algorithm>
+#include <iostream>
+#include <cmath>
 
 INT *freqRel, *freqEnt;
 INT *lefHead, *rigHead;
 INT *lefTail, *rigTail;
 INT *lefRel, *rigRel;
 REAL *left_mean, *right_mean;
+REAL *prob;
 
 Triple *trainList;
 Triple *trainHead;
@@ -18,6 +21,33 @@ Triple *trainRel;
 
 INT *testLef, *testRig;
 INT *validLef, *validRig;
+
+extern "C"
+void importProb(REAL temp){
+    if (prob != NULL)
+        free(prob);
+    FILE *fin;
+    fin = fopen((inPath + "kl_prob.txt").c_str(), "r");
+    printf("Current temperature:%f\n", temp);
+    prob = (REAL *)calloc(relationTotal*(relationTotal-1), sizeof(REAL));
+    INT tmp;
+    for (INT i = 0; i < relationTotal*(relationTotal-1); ++i){
+        tmp = fscanf(fin, "%f", &prob[i]);
+    }
+    REAL sum = 0.0;
+    for (INT i = 0; i < relationTotal; ++i){
+        for (INT j = 0; j < relationTotal-1; ++j){
+            REAL tmp = exp(-prob[i*(relationTotal-1)+j] / temp);
+            sum += tmp;
+            prob[i*(relationTotal-1)+j] = tmp;
+        }
+        for (INT j = 0; j < relationTotal-1; ++j){
+            prob[i*(relationTotal-1)+j] /= sum;
+        }
+        sum = 0;
+    }
+    printf("Probability:%f\n", prob[607]);
+}
 
 extern "C"
 void importTrainFiles() {

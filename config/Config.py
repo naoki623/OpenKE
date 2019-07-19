@@ -12,8 +12,6 @@ import json
 import numpy as np
 import copy
 
-import pdb
-
 def to_var(x):
     return Variable(torch.from_numpy(x).cuda())
 
@@ -25,6 +23,7 @@ class Config(object):
         )
         self.lib = ctypes.cdll.LoadLibrary(base_file)
         """argtypes"""
+        self.lib.importProb.argtypes = [ctypes.c_float]
         """'sample"""
         self.lib.sampling.argtypes = [
             ctypes.c_void_p,
@@ -34,6 +33,8 @@ class Config(object):
             ctypes.c_int64,
             ctypes.c_int64,
             ctypes.c_int64,
+            ctypes.c_bool, 
+            ctypes.c_bool
         ]
         """'valid"""
         self.lib.getValidHeadBatch.argtypes = [
@@ -46,8 +47,14 @@ class Config(object):
             ctypes.c_void_p,
             ctypes.c_void_p,
         ]
+        self.lib.getValidRelBatch.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
         self.lib.validHead.argtypes = [ctypes.c_void_p]
         self.lib.validTail.argtypes = [ctypes.c_void_p]
+        self.lib.validRel.argtypes = [ctypes.c_void_p]
         """test link prediction"""
         self.lib.getHeadBatch.argtypes = [
             ctypes.c_void_p,
@@ -59,8 +66,14 @@ class Config(object):
             ctypes.c_void_p,
             ctypes.c_void_p,
         ]
+        self.lib.getRelBatch.argtypes = [
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+            ctypes.c_void_p,
+        ]
         self.lib.testHead.argtypes = [ctypes.c_void_p]
         self.lib.testTail.argtypes = [ctypes.c_void_p]
+        self.lib.testRel.argtypes = [ctypes.c_void_p]
         """test triple classification"""
         self.lib.getValidBatch.argtypes = [
             ctypes.c_void_p,
@@ -92,8 +105,10 @@ class Config(object):
             ctypes.c_bool,
         ]
         """restype"""
-        self.lib.getValidHit10.restype = ctypes.c_float
-        self.lib.judgeHeadBatch.restype = ctypes.c_bool
+        self.lib.getValidLinkHit10.restype = ctypes.c_float
+        self.lib.getValidLinkHit1.restype = ctypes.c_float
+        self.lib.getValidRelHit10.restype = ctypes.c_float
+        self.lib.getValidRelHit1.restype = ctypes.c_float
         """set essential parameters"""
         self.in_path = "./"
         self.batch_size = 100
@@ -102,6 +117,7 @@ class Config(object):
         self.hidden_size = 100
         self.negative_ent = 1
         self.negative_rel = 0
+        self.prob_rel = False
         self.ent_size = self.hidden_size
         self.rel_size = self.hidden_size
         self.head_batch = False
@@ -115,20 +131,30 @@ class Config(object):
         self.lr_decay = 0
         self.weight_decay = 0
         self.lmbda = 0.0
-        self.alpah = 0.001
+        self.alpha = 0.001
         self.early_stopping_patience = 10
         self.nbatches = 100
         self.p_norm = 1
         self.self_adv = False
-        self.test_link = True
+        self.test_link = False
+        self.test_triple = False
+        self.valid_link = False
+        self.valid_relation = False
         self.ent_double_embedding = False
         self.rel_double_embedding = False
         self.cross_sampling = False
-        self.test_triple = True
+        self.val_loss = False
         self.model = None
         self.trainModel = None
         self.testModel = None
         self.pretrain_model = None
+        self.start_epoch = 0
+        self.main_target = 'Relation'
+        self.hit_target = '1'
+        self.SA = False
+        self.SA_steps = 200
+        self.SA_init_temp = 8192
+        self.SA_final_temp = 16
 
     def init(self):
         self.lib.setInPath(
@@ -140,6 +166,10 @@ class Config(object):
         self.lib.importTrainFiles()
         self.lib.importTestFiles()
         self.lib.importTypeFiles()
+        if self.prob_rel:
+            self.lib.importProb(
+                self.SA_init_temp
+            )
         self.relTotal = self.lib.getRelationTotal()
         self.entTotal = self.lib.getEntityTotal()
         self.trainTotal = self.lib.getTrainTotal()
@@ -162,9 +192,15 @@ class Config(object):
         self.valid_h = np.zeros(self.entTotal, dtype=np.int64)
         self.valid_t = np.zeros(self.entTotal, dtype=np.int64)
         self.valid_r = np.zeros(self.entTotal, dtype=np.int64)
+        self.valid_rel_h = np.zeros(self.relTotal, dtype=np.int64)
+        self.valid_rel_t = np.zeros(self.relTotal, dtype=np.int64)
+        self.valid_rel_r = np.zeros(self.relTotal, dtype=np.int64)
         self.valid_h_addr = self.valid_h.__array_interface__["data"][0]
         self.valid_t_addr = self.valid_t.__array_interface__["data"][0]
         self.valid_r_addr = self.valid_r.__array_interface__["data"][0]
+        self.valid_rel_h_addr = self.valid_rel_h.__array_interface__["data"][0]
+        self.valid_rel_t_addr = self.valid_rel_t.__array_interface__["data"][0]
+        self.valid_rel_r_addr = self.valid_rel_r.__array_interface__["data"][0]
 
         self.test_h = np.zeros(self.entTotal, dtype=np.int64)
         self.test_t = np.zeros(self.entTotal, dtype=np.int64)
@@ -206,6 +242,15 @@ class Config(object):
 
     def set_test_triple(self, test_triple):
         self.test_triple = test_triple
+
+    def set_test_relation(self, test_relation):
+        self.test_relation = test_relation
+
+    def set_valid_link(self, valid_link):
+        self.valid_link = valid_link
+
+    def set_valid_relation(self, valid_relation):
+        self.valid_relation = valid_relation
 
     def set_margin(self, margin):
         self.margin = margin
@@ -272,6 +317,9 @@ class Config(object):
     def set_rel_neg_rate(self, rate):
         self.negative_rel = rate
 
+    def set_prob_rel(self, prob_rel):
+        self.prob_rel = prob_rel
+
     def set_epsilon(self, epsilon):
         self.epsilon = epsilon
 
@@ -285,6 +333,25 @@ class Config(object):
         self.cross_sampling = cross_sampling
         self.lib.setHeadTailCrossSampling(cross_sampling)
         # print(self.lib.judgeHeadBatch())
+
+    def set_val_loss(self, val_loss):
+        self.val_loss = val_loss
+
+    def set_main_target(self, main_target):
+        self.main_target = main_target
+
+    def set_hit_target(self, hit_target):
+        self.hit_target = hit_target
+
+    def set_SA(self, SA):
+        self.SA = SA
+
+    def set_SA_steps(self, steps):
+        self.SA_steps = steps
+    
+    def set_SA_temp(self, init_temp, final_temp):
+        self.SA_init_temp = init_temp
+        self.SA_final_temp = final_temp
 
     def set_ent_double_embedding(self, ent_double_embedding):
         self.ent_double_embedding = ent_double_embedding
@@ -362,16 +429,20 @@ class Config(object):
         self.testModel.eval()
         print("Finish initializing")
 
-    def sampling(self):
+    def sampling(self, batch_size=None, val_loss=False):
+        if batch_size == None:
+            batch_size = self.batch_size
         self.head_batch = self.lib.judgeHeadBatch()
         self.lib.sampling(
             self.batch_h_addr,
             self.batch_t_addr,
             self.batch_r_addr,
             self.batch_y_addr,
-            self.batch_size,
+            batch_size,
             self.negative_ent,
             self.negative_rel,
+            self.prob_rel,
+            val_loss
         )
 
     def save_checkpoint(self, model, epoch):
@@ -384,15 +455,22 @@ class Config(object):
         path = os.path.join(self.result_dir, self.model.__name__ + ".ckpt")
         torch.save(best_model, path)
 
-    def train_one_step(self):
-        self.trainModel.batch_h = to_var(self.batch_h)
-        self.trainModel.batch_t = to_var(self.batch_t)
-        self.trainModel.batch_r = to_var(self.batch_r)
-        self.trainModel.batch_y = to_var(self.batch_y)
-        self.optimizer.zero_grad()
-        loss = self.trainModel(self.head_batch)
-        loss.backward()
-        self.optimizer.step()
+    def train_one_step(self, train=True):
+        if train:
+            self.trainModel.batch_h = to_var(self.batch_h)
+            self.trainModel.batch_t = to_var(self.batch_t)
+            self.trainModel.batch_r = to_var(self.batch_r)
+            self.trainModel.batch_y = to_var(self.batch_y)
+            loss = self.trainModel()
+            self.optimizer.zero_grad()
+            loss.backward()
+            self.optimizer.step()
+        else:
+            self.trainModel.batch_h = to_var(self.batch_h[:self.validTotal])
+            self.trainModel.batch_t = to_var(self.batch_t[:self.validTotal])
+            self.trainModel.batch_r = to_var(self.batch_r[:self.validTotal])
+            self.trainModel.batch_y = to_var(self.batch_y[:self.validTotal])
+            loss = self.trainModel(False)
         return loss.item()
 
     def test_one_step(self, model, test_h, test_t, test_r):
@@ -401,30 +479,54 @@ class Config(object):
         model.batch_r = to_var(test_r)
         return model.predict()
 
-    def valid(self, model):
+    def valid(self, model, rel=True, link=False, loss=False):
         self.lib.validInit()
-        for i in range(self.validTotal):
-            sys.stdout.write("%d\r" % (i))
-            sys.stdout.flush()
-            self.lib.getValidHeadBatch(
-                self.valid_h_addr, self.valid_t_addr, self.valid_r_addr
-            )
-            res = self.test_one_step(model, self.valid_h, self.valid_t, self.valid_r)
+        linkHit1 = None
+        linkHit10 = None
+        relHit1 = None
+        relHit10 = None
+        val_loss = None
+        if link:
+            for i in range(self.validTotal):
+                sys.stdout.write("%d\r" % (i))
+                sys.stdout.flush()
+                self.lib.getValidHeadBatch(
+                    self.valid_h_addr, self.valid_t_addr, self.valid_r_addr
+                )
+                res = self.test_one_step(model, self.valid_h, self.valid_t, self.valid_r)
 
-            self.lib.validHead(res.__array_interface__["data"][0])
+                self.lib.validHead(res.__array_interface__["data"][0])
+                self.lib.getValidTailBatch(
+                    self.valid_h_addr, self.valid_t_addr, self.valid_r_addr
+                )
+                res = self.test_one_step(model, self.valid_h, self.valid_t, self.valid_r)
+                self.lib.validTail(res.__array_interface__["data"][0])
 
-            self.lib.getValidTailBatch(
-                self.valid_h_addr, self.valid_t_addr, self.valid_r_addr
-            )
-            res = self.test_one_step(model, self.valid_h, self.valid_t, self.valid_r)
-            self.lib.validTail(res.__array_interface__["data"][0])
-        return self.lib.getValidHit10()
+                linkHit1 = self.lib.getValidLinkHit1()
+                linkHit10 = self.lib.getValidLinkHit10()
+        if rel:
+            for i in range(self.validTotal):
+                sys.stdout.write("%d\r" % (i))
+                sys.stdout.flush()
+                self.lib.getValidRelBatch(self.valid_rel_h_addr, self.valid_rel_t_addr, self.valid_rel_r_addr)
+                res = self.test_one_step(
+                    model, self.valid_rel_h, self.valid_rel_t, self.valid_rel_r
+                )
+                self.lib.validRel(res.__array_interface__["data"][0])
+                relHit1 = self.lib.getValidRelHit1()
+                relHit10 = self.lib.getValidRelHit10()
+        if loss:
+            val_loss = 0
+            self.sampling(batch_size=self.validTotal, val_loss=True)
+            val_loss = self.train_one_step(False)
+        return relHit1, relHit10, linkHit1, linkHit10, val_loss
 
     def train(self):
         if not os.path.exists(self.checkpoint_dir):
             os.mkdir(self.checkpoint_dir)
         best_epoch = 0
-        best_hit10 = 0.0
+        best_hit = 0.0
+        min_val_loss = 1e30
         best_model = None
         bad_counts = 0
         for epoch in range(self.train_times):
@@ -439,27 +541,70 @@ class Config(object):
                 self.save_checkpoint(self.trainModel.state_dict(), epoch)
             if (epoch + 1) % self.valid_steps == 0:
                 print("Epoch %d has finished, validating..." % (epoch))
-                hit10 = self.valid(self.trainModel)
-                if hit10 > best_hit10:
-                    best_hit10 = hit10
-                    best_epoch = epoch
-                    best_model = copy.deepcopy(self.trainModel.state_dict())
-                    print("Best model | hit@10 of valid set is %f" % (best_hit10))
+                hit1_rel, hit10_rel, hit1_link, hit10_link, loss = self.valid(self.trainModel, rel=self.valid_relation, link=self.valid_link, loss=self.val_loss)
+                if loss is not None:
+                    if loss < min_val_loss:
+                        min_val_loss = loss
+                        bad_counts = 0
+                        best_epoch = epoch + self.start_epoch
+                        best_model = self.trainModel.state_dict()
+                        print("Best model")
+                        print("Min val loss:%f"%(min_val_loss))
+                        continue
+                    else:
+                        bad_counts += 1
+                        print("val loss:%f"%loss)
+                        print("Bad count is %d"%bad_counts)
+                        if bad_counts == self.early_stopping_patience:
+                            print("Early stopping at epoch %d"%(epoch+self.start_epoch))
+                            break
+                        continue
+                if self.main_target == 'Link':
+                    hit1 = hit1_link
+                    hit10 = hit10_link
+                elif self.main_target == 'Relation':
+                    hit1 = hit1_rel
+                    hit10 = hit10_rel
+                if (self.hit_target == '1' and hit1 > best_hit) or (self.hit_target == '10' and hit10 > best_hit):
+                    if self.hit_target == '1':
+                        best_hit = hit1
+                    elif self.hit_target == '10':
+                        best_hit = hit10
+                    best_epoch = epoch + self.start_epoch
+                    best_model = self.trainModel.state_dict()
+                    print("Best model")
+                    if self.valid_relation:
+                        print("Relation prediction Hit@1 of valid set is %f, Hit@10 of valid set is %f" % (hit1_rel, hit10_rel))
+                    if self.valid_link:
+                        print("Link prediction Hit@1 of valid set is %f, Hit@10 of valid set is %f" % (hit1_link, hit10_link))
                     bad_counts = 0
                 else:
-                    print(
-                        "Hit@10 of valid set is %f | bad count is %d"
-                        % (hit10, bad_counts)
-                    )
+                    if self.valid_relation:
+                        print(
+                            "Relation Prediction Hit@1 of valid set is %f, Hit@10 of valid set is %f"
+                            % (hit1_rel, hit10_rel)
+                        )
+                    if self.valid_link:
+                        print(
+                            "Link prediction Hit@1 of valid set is %f, Hit@10 of valid set is %f" 
+                            % (hit1_link, hit10_link)
+                        )
+                    print("bad count is %d", bad_counts)
                     bad_counts += 1
                 if bad_counts == self.early_stopping_patience:
-                    print("Early stopping at epoch %d" % (epoch))
+                    print("Early stopping at epoch %d" % (epoch + self.start_epoch))
                     break
+            if self.SA and (epoch + 1) % self.SA_steps == 0:
+                if self.SA_init_temp > self.SA_final_temp:
+                    self.SA_init_temp  = int(self.SA_init_temp / 2)
+                    self.lib.importProb(
+                        self.SA_init_temp
+                )
         if best_model == None:
             best_model = self.trainModel.state_dict()
             best_epoch = self.train_times - 1
-            best_hit10 = self.valid(self.trainModel)
-        print("Best epoch is %d | hit@10 of valid set is %f" % (best_epoch, best_hit10))
+            hit1_rel, hit10_rel, hit1_link, hit10_link, loss = self.valid(self.trainModel)
+        print("Best epoch is %d | hit of valid set is %f" % (best_epoch, best_hit))
         print("Store checkpoint of best result at epoch %d..." % (best_epoch))
         if not os.path.isdir(self.result_dir):
             os.mkdir(self.result_dir)
@@ -531,8 +676,22 @@ class Config(object):
             res_neg.__array_interface__["data"][0],
         )
 
+    def relation_prediction(self):
+        for i in range(self.testTotal):
+            sys.stdout.write("%d\r" % (i))
+            sys.stdout.flush()
+            self.lib.getRelBatch(self.test_h_addr, self.test_t_addr, self.test_r_addr)
+            res = self.test_one_step(
+                self.testModel, self.test_h[:self.relTotal], self.test_t[:self.relTotal], self.test_r[:self.relTotal]
+            )
+            # pdb.set_trace()
+            self.lib.testRel(res.__array_interface__["data"][0])
+        self.lib.test_relation_prediction()
+
     def test(self):
         if self.test_link:
             self.link_prediction()
         if self.test_triple:
             self.triple_classification()
+        if self.test_relation:
+            self.relation_prediction()
