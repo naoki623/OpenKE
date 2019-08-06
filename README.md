@@ -1,4 +1,4 @@
-# OpenKE-PyTorch
+# OpenKE-Alpha
 An Open-source Framework for Knowledge Embedding implemented with PyTorch.
 
 More information is available on our website 
@@ -14,6 +14,20 @@ If you use the code, please cite the following [paper](http://aclweb.org/antholo
    year={2018}
  }
 ```
+
+## Difference from OpenKE-PyTorch branch
+
+✔ RotatE
+
+✔ You can use loss / relation prediction hit@1(10) / link prediction hit@1(10) on validation set to do the early stop
+
+✔ Negative sampling using similarity between relations
+
+✔ Self-adversarial negative sampling (only tested on RotatE and TransE)
+
+✔ More negative sampling strategy: ① replace all the head entities in one negative sample batch, and all the tail entities for the next one ② randomly choose to replace head entity or tail entity for every negative sample
+
+❌ cpu version
 
 ## Overview
 
@@ -31,9 +45,9 @@ OpenKE-PyTorch: the project based on PyTorch, which provides the optimized and s
 
 1. Install PyTorch
 
-2. Clone the OpenKE-PyTorch branch:
+2. Clone the OpenKE-alpha branch:
 
-	$ git clone -b OpenKE-PyTorch https://github.com/thunlp/OpenKE
+	$ git clone -b OpenKE-alpha https://github.com/thunlp/OpenKE
 	
 	$ cd OpenKE
 
@@ -86,7 +100,7 @@ To compute a knowledge graph embedding, first import datasets and set configure 
 	con.set_ent_neg_rate(1)
 	con.set_rel_neg_rate(0)
 	con.set_opt_method("SGD")
-
+	
 	#Models will be exported via tf.Saver() automatically.
 	con.set_export_files("./res/model.vec.tf", 0)
 	#Model parameters will be exported to json files automatically.
@@ -101,7 +115,7 @@ To compute a knowledge graph embedding, first import datasets and set configure 
 #### Step 1: Import datasets
 
 	con.set_in_path("benchmarks/FB15K/")
-	
+
 We import knowledge graphs from benchmarks/FB15K/ folder. The data consists of three essential files mentioned before:
 
 *	train2id.txt
@@ -132,13 +146,13 @@ We set essential parameters, including the data traversing rounds, learning rate
 For negative sampling, we can corrupt entities and relations to construct negative triples. set\_bern(0) will use the traditional sampling method, and set\_bern(1) will use the method in (Wang et al. 2014) denoted as "bern".
 	
 	con.set_optimizer("SGD")
-	
+
 We can select a proper gradient descent optimization algorithm to train models.
 
 #### Step 3: Export results
 
 	con.set_export_files("./res/model.vec.pt")
-
+	
 	con.set_out_files("./res/embedding.vec.json")
 
 Model parameters will be exported via torch.save() automatically every few rounds. Also, they will be exported to json files finally. 
@@ -148,7 +162,7 @@ Model parameters will be exported via torch.save() automatically every few round
 	con.init()
 	con.set_model(models.TransE)
 	con.run()
-  
+
 We set the knowledge graph embedding model and start the training process.
 
 ### Testing
@@ -220,7 +234,7 @@ Given the head entity and tail entity, predict the top k possible relations. All
 		res = self.trainModel.predict(test_h, test_t, test_r).data.numpy().reshape(-1).argsort()[:k]
 		print(res)
 		return res
-		
+
 #### Predict triple
 
 Given a triple (h, r, t), this funtion tells us whether the triple is correct or not. If the threshold is not given, this function calculates the threshold for the relation from the valid dataset.
@@ -240,8 +254,8 @@ Given a triple (h, r, t), this funtion tells us whether the triple is correct or
 		res = self.trainModel.predict(np.array([h]), np.array([t]), np.array([r])).data.numpy()
 		if thresh != None:
 			if res < thresh:
-                        	print("triple (%d,%d,%d) is correct" % (h, t, r))
-                	else:
+	                    	print("triple (%d,%d,%d) is correct" % (h, t, r))
+	            	else:
 	                        print("triple (%d,%d,%d) is wrong" % (h, t, r))	
 			return
 		self.lib.getValidBatch(self.valid_pos_h_addr, self.valid_pos_t_addr, self.valid_pos_r_addr, self.valid_neg_h_addr, self.valid_neg_t_addr, self.valid_neg_r_addr)
@@ -265,7 +279,7 @@ There are three approaches to test models:
 	import models
 	import numpy as np
 	import json
-
+	
 	con = config.Config()
 	con.set_in_path("./benchmarks/FB15K/")
 	con.test_link_prediction(True)
@@ -283,7 +297,7 @@ There are three approaches to test models:
 	import models
 	import numpy as np
 	import json
-
+	
 	con = config.Config()
 	con.set_in_path("./benchmarks/FB15K/")
 	con.test_link_prediction(True)
@@ -304,7 +318,7 @@ There are three approaches to test models:
 	import models
 	import numpy as np
 	import json
-
+	
 	con = config.Config()
 	con.set_in_path("./benchmarks/FB15K/")
 	con.test_link_prediction(True)
@@ -373,7 +387,7 @@ There are four approaches to get the embedding matrix.
 	embeddings = con.get_parameters("numpy")
 	# Get the embeddings (python list)
 	embeddings = con.get_parameters()
-  
+
 (4) Immediately get the embeddings after training the model.
 
 	...
@@ -397,7 +411,7 @@ There are four approaches to get the embedding matrix.
 ## Interfaces
 
 ### Config
-	
+
 	class Config(object):
 			
 		#To set the learning rate
@@ -441,7 +455,7 @@ There are four approaches to get the embedding matrix.
 		
 		#To sample a batch of training triples, including positive and negative ones.
 		def sampling()
-
+	
 		#To import dataset from the benchmark folder
 		def set_in_path(self, path)
 		
@@ -453,41 +467,41 @@ There are four approaches to get the embedding matrix.
 		
 		#To set the export file of model paramters, and export results every few rounds
 		def set_export_files(self, path, steps = 0)
-
+	
 		#To export results every few rounds
 		def set_export_steps(self, steps)
-
+	
 		#To save model via torch.save()
 		def save_pytorch(self)
-
+	
 		#To restore model via torch.load()
 		def restore_pytorch(self)
-
+	
 		#To export model paramters, when path is none, equivalent to save_tensorflow()
 		def export_variables(self, path = None)
-
+	
 		#To import model paramters, when path is none, equivalent to restore_tensorflow()
 		def import_variables(self, path = None)
 		
 		#To export model paramters to designated path
 		def save_parameters(self, path = None)
-
+	
 		#To manually load parameters which are read from json files
 		def set_parameters(self, lists)
 		
 		#To get model paramters, if using mode "numpy", you can get np.array , else you can get python lists
 		def get_parameters(self, mode = "numpy")
- 
+	 
 		#To set the knowledge embedding model
 		def set_model(model)
 		
 		#The framework will print loss values during training if flag = 1
 		def set_log_on(flag = 1)
-
+	
 		#This is essential when testing
 		def test_link_prediction(True)
 		def test_triple_classification(True)
-	
+
 Note that model paramters can be loaded only when all the configuration paramters are set.
 
 ### Model
@@ -505,11 +519,11 @@ Note that model paramters can be loaded only when all the configuration paramter
 		# in_batch = False, return [negative_head, negative_tail, negative_relation]
 		# The shape of positive_head is [(negative_ent_rate + negative_rel_rate) * batch_size]		
 		get_negative_instance(in_batch = True)
-
+	
 		# in_batch = True, return all training instances with the shape [batch_size, (1 + negative_ent_rate + negative_rel_rate)]
 		# in_batch = False, return all training instances with the shape [(negative_ent_rate + negative_rel_rate + 1) * batch_size]
 		def get_all_instance(in_batch = False)
-
+	
 		# in_batch = True, return all training labels with the shape [batch_size, (1 + negative_ent_rate + negative_rel_rate)]
 		# in_batch = False, return all training labels with the shape [(negative_ent_rate + negative_rel_rate + 1) * batch_size]
 		# The positive triples are labeled as 1, and the negative triples are labeled as -1
@@ -517,24 +531,24 @@ Note that model paramters can be loaded only when all the configuration paramter
 		
 		#To calulate the loss
 		def forward(self)
-
+	
 		# To define loss functions for knowledge embedding models
 		def loss_func()
 		
 		# To define the prediction functions for knowledge embedding models
 		def predict(self)
-
+	
 		def __init__(config)
-
+	
 	#The implementation for TransE
 	class TransE(Model)
-
+	
 	#The implementation for TransH	
 	class TransH(Model)
-
+	
 	#The implementation for TransR
 	class TransR(Model)
-
+	
 	#The implementation for TransD
 	class TransD(Model)
 	
@@ -546,7 +560,7 @@ Note that model paramters can be loaded only when all the configuration paramter
 	
 	#The implementation for ComplEx
 	class ComplEx(Model)
-	
 
-	
+
+​	
 
